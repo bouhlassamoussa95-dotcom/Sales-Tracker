@@ -1366,30 +1366,50 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-ety]');if(
  if(v=='p'){const h=document.createElement('button');h.dataset.a='cpot';h.dataset.id=c.id;h.hidden=1;document.body.appendChild(h);h.click();h.remove();ED='';GE=0;save();render();return}
  c.s=v;save();document.querySelectorAll('[data-ety]').forEach(x=>x.classList.toggle('on',x===b))});
 /* Firebase Realtime Database: your database URL + a secret code = your data on any phone */
-/* Firebase Firestore (project config built in; the only thing you type is your secret code) */
-var FBC={p:'work-tracker-72686',k:'AIzaSyCDV7TtY66v5a7jFyQ0sS6YgORrs5Y2aSE'},fbT=0;
-function FB(){return S.fb=S.fb||{code:'',msg:''}}
-function fbCode(){return String(FB().code||'').trim()}
-function fbDoc(id){return 'https://firestore.googleapis.com/v1/projects/'+FBC.p+'/databases/(default)/documents/wt/'+encodeURIComponent(id)+'?key='+FBC.k}
+/* Firebase account (email + password). Project config is built in; nothing else to type. */
+var FBC={p:'work-tracker-72686',k:'AIzaSyCDV7TtY66v5a7jFyQ0sS6YgORrs5Y2aSE'},fbT=0,fbI='',fbX=0;
+var FBE={EMAIL_EXISTS:'This email already has an account. Tap Sign in.',INVALID_LOGIN_CREDENTIALS:'Wrong email or password.',INVALID_PASSWORD:'Wrong email or password.',EMAIL_NOT_FOUND:'No account with this email. Tap Create account.',WEAK_PASSWORD:'Password is too short. Use at least 6 characters.',INVALID_EMAIL:'This email address is not valid.',MISSING_PASSWORD:'Type your password.',TOO_MANY_ATTEMPTS_TRY_LATER:'Too many attempts. Wait a few minutes and try again.',OPERATION_NOT_ALLOWED:'Email sign-in is not turned on in Firebase (Authentication, Sign-in method, Email/Password).',CONFIGURATION_NOT_FOUND:'Authentication is not set up in Firebase yet (Build, Authentication, Get started).',USER_DISABLED:'This account is disabled.'};
+function FB(){const f=S.fb=S.fb||{msg:''};delete f.code;return f}
+function fbLogged(){const f=FB();return !!(f.rt&&f.uid)}
+async function fbAuth(path,body){let r,j;try{r=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:'+path+'?key='+FBC.k,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});j=await r.json()}catch(e){throw new Error('No internet connection')}
+ if(!r.ok){const m=String((j.error&&j.error.message)||'HTTP '+r.status);throw new Error(FBE[m.split(' ')[0]]||m)}return j}
+function fbSess(j,em){const f=FB();f.email=em;f.uid=j.localId;f.rt=j.refreshToken;fbI=j.idToken;fbX=Date.now()+(+j.expiresIn-120)*1000}
+async function fbTok(){if(fbI&&Date.now()<fbX)return fbI;let r,j;try{r=await fetch('https://securetoken.googleapis.com/v1/token?key='+FBC.k,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'grant_type=refresh_token&refresh_token='+encodeURIComponent(FB().rt)});j=await r.json()}catch(e){throw new Error('No internet connection')}
+ if(!r.ok)throw new Error('Please sign in again');fbI=j.id_token;fbX=Date.now()+(+j.expires_in-120)*1000;FB().rt=j.refresh_token||FB().rt;return fbI}
+function fbDoc(id){return 'https://firestore.googleapis.com/v1/projects/'+FBC.p+'/databases/(default)/documents/users/'+FB().uid+'/parts/'+id}
 async function fbErr(r){let x='';try{const j=await r.json();x=(j.error&&j.error.message)||JSON.stringify(j)}catch(e){}return 'HTTP '+r.status+(x?' · '+String(x).slice(0,160):'')}
-async function fbPut(id,fields){const r=await fetch(fbDoc(id),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields})});if(!r.ok)throw new Error(await fbErr(r))}
-async function fbGet(id){const r=await fetch(fbDoc(id));if(r.status==404)return null;if(!r.ok)throw new Error(await fbErr(r));return (await r.json()).fields||null}
-function fbLater(){if(!fbCode()||!FB().auto)return;clearTimeout(fbT);fbT=setTimeout(()=>fbPush(1),5000)}
-function fbMsg(e,w){return w+': '+(e.message&&e.message!='Failed to fetch'?e.message:'no internet connection')}
-async function fbPush(q){const c=fbCode();if(!c){toast('Make or type a code first');return}
+async function fbPut(id,fields){let r;try{r=await fetch(fbDoc(id),{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer '+await fbTok()},body:JSON.stringify({fields})})}catch(e){throw new Error(e.message=='Failed to fetch'?'No internet connection':e.message)}if(!r.ok)throw new Error(await fbErr(r))}
+async function fbGet(id){let r;try{r=await fetch(fbDoc(id),{headers:{Authorization:'Bearer '+await fbTok()}})}catch(e){throw new Error(e.message=='Failed to fetch'?'No internet connection':e.message)}if(r.status==404)return null;if(!r.ok)throw new Error(await fbErr(r));return (await r.json()).fields||null}
+async function fbCheck(){const j=await fbAuth('lookup',{idToken:await fbTok()});FB().ver=!!(j.users&&j.users[0]&&j.users[0].emailVerified)}
+function fbLater(){if(!fbLogged()||!FB().auto)return;clearTimeout(fbT);fbT=setTimeout(()=>fbPush(1),5000)}
+async function fbPush(q){if(!fbLogged()){toast('Sign in first');return}
  try{const s=JSON.stringify(Object.assign({},S,{fb:undefined})),N=200000;let p=0,n=0;
-  while(p<s.length||!n){let e=Math.min(p+N,s.length);const cc=s.charCodeAt(e-1);if(e<s.length&&cc>=0xD800&&cc<=0xDBFF)e--;await fbPut(c+'-'+n,{d:{stringValue:s.slice(p,e)}});p=e;n++;if(p>=s.length)break}
-  await fbPut(c+'-meta',{n:{integerValue:String(n)},ts:{integerValue:String(Date.now())}});FB().msg='Saved to Firebase at '+hm();if(!q)toast('Saved to Firebase')}
- catch(e){FB().msg=fbMsg(e,'Could not save');if(!q)toast('Could not save. See the message in Settings.')}
+  while(true){let e=Math.min(p+N,s.length);const cc=s.charCodeAt(e-1);if(e<s.length&&cc>=0xD800&&cc<=0xDBFF)e--;await fbPut(String(n),{d:{stringValue:s.slice(p,e)}});p=e;n++;if(p>=s.length)break}
+  await fbPut('meta',{n:{integerValue:String(n)},ts:{integerValue:String(Date.now())}});FB().msg='Saved to Firebase at '+hm();if(!q)toast('Saved to Firebase')}
+ catch(e){FB().msg='Could not save: '+e.message;if(!q)toast('Could not save. See the message in Settings.')}
  try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}if(tab=='set')render()}
-async function fbPull(){const c=fbCode();if(!c){toast('Type your code first');return}
- try{const m=await fbGet(c+'-meta');if(!m){toast('Nothing is saved under this code');return}const n=+m.n.integerValue;let s='';for(let i=0;i<n;i++){const d=await fbGet(c+'-'+i);if(!d)throw new Error('a part of the backup is missing');s+=d.d.stringValue}
-  const j=JSON.parse(s);if(!confirm('Replace the data on this phone with the Firebase copy?'))return;const keep=S.fb;DR.restoring=1;S=Object.assign({},j,{fb:keep});DR.restoring=0;try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}location.reload()}
- catch(e){FB().msg=fbMsg(e,'Could not restore');toast('Could not restore. See the message in Settings.');if(tab=='set')render()}}
-function fbcard(){const f=FB();return `<div class="addbox"><b>🔥 Firebase backup and new phone</b><div class="sub" style="margin:6px 0">${esc(f.msg||'Not saved yet.')}</div><label class="il">Your secret code<input type="text" id="fb-c" value="${esc(f.code||'')}" placeholder="tap Make a code" autocapitalize="off" autocomplete="off"></label><div class="add" style="margin-top:8px"><button class="btn ghost" data-fb="gen">🎲 Make a code</button><button class="btn" data-fb="save">💾 Save now</button></div><div class="add" style="margin-top:6px"><button class="btn ghost" data-fb="pull">⬇️ Restore on this phone</button></div><div class="sub" style="margin-top:6px">Write the code down. New phone: install the app, type the same code, tap Restore. After the first save, every change is saved automatically.</div></div>`}
-document.addEventListener('click',e=>{const b=e.target.closest('[data-fb]');if(!b)return;const a=b.dataset.fb,c=$('#fb-c'),f=FB();
- if(a=='gen'){const x=new Uint8Array(12);crypto.getRandomValues(x);c.value=[...x].map(n=>n.toString(36).padStart(2,'0')).join('');f.code=c.value;save();return}
- f.code=(c.value||'').trim();if(a=='save'){f.auto=1;save();fbPush()}else if(a=='pull')fbPull()});
+async function fbPull(){if(!fbLogged()){toast('Sign in first');return}
+ try{const m=await fbGet('meta');if(!m){toast('No backup saved for this account yet');return}const n=+m.n.integerValue;let s='';for(let i=0;i<n;i++){const d=await fbGet(String(i));if(!d)throw new Error('a part of the backup is missing');s+=d.d.stringValue}
+  const j=JSON.parse(s);if(!confirm('Replace the data on this phone with the Firebase copy?'))return;const keep=S.fb;keep.auto=1;DR.restoring=1;S=Object.assign({},j,{fb:keep});DR.restoring=0;try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}location.reload()}
+ catch(e){FB().msg='Could not restore: '+e.message;toast('Could not restore. See the message in Settings.');if(tab=='set')render()}}
+function fbcard(){const f=FB(),out=fbLogged();
+ return `<div class="addbox"><b>🔥 Account and backup</b><div class="sub" style="margin:6px 0">${esc(f.msg||(out?'Signed in.':'Sign in to back up your data and restore it on any phone.'))}</div>`+(out?
+ `<div class="r2"><span>${esc(f.email||'')}</span><b style="color:${f.ver?'var(--new)':'var(--md)'}">${f.ver?'✓ verified':'⚠ not verified'}</b></div>${f.ver?'':'<div class="add" style="margin-top:6px"><button class="btn ghost" data-fb="resend">📧 Resend verification email</button><button class="btn ghost" data-fb="check">↻ I verified</button></div>'}<div class="add" style="margin-top:8px"><button class="btn" data-fb="save">💾 Save now</button><button class="btn ghost" data-fb="pull">⬇️ Restore</button></div><div class="add" style="margin-top:6px"><button class="btn ghost" data-fb="out">Sign out</button></div>`
+ :`<label class="il">Email<input type="email" id="fb-e" value="${esc(f.email||'')}" placeholder="you@gmail.com" autocapitalize="off" autocomplete="username"></label><label class="il">Password<input type="password" id="fb-p" placeholder="at least 6 characters" autocomplete="current-password"></label><div class="add" style="margin-top:8px"><button class="btn" data-fb="in">Sign in</button><button class="btn ghost" data-fb="up">Create account</button></div><div class="add" style="margin-top:6px"><button class="btn ghost" data-fb="forgot">Forgot password?</button></div><div class="sub" style="margin-top:6px">Creating an account sends a verification email to your inbox. If you forget the password, we email you a link to choose a new one (a password can never be shown, only replaced).</div>`)+`</div>`}
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-fb]');if(!b)return;const a=b.dataset.fb,f=FB(),em=(($('#fb-e')||{}).value||'').trim().toLowerCase(),pw=($('#fb-p')||{}).value||'';
+ try{
+  if(a=='in'||a=='up'){if(!em||!pw){toast('Type your email and password');return}
+   const j=await fbAuth(a=='up'?'signUp':'signInWithPassword',{email:em,password:pw,returnSecureToken:true});fbSess(j,em);
+   if(a=='up'){await fbAuth('sendOobCode',{requestType:'VERIFY_EMAIL',idToken:j.idToken});f.ver=0;f.auto=1;f.msg='Account created. A verification email was sent to '+em+'. Open it to confirm that this address is yours.';save();await fbPush(1);f.msg='Account created. A verification email was sent to '+em+'. Open it to confirm that this address is yours.'}
+   else{await fbCheck();const m=await fbGet('meta');if(m){f.auto=0;f.msg='Signed in. A backup exists: tap Restore to load it, or Save now to replace it.'}else{f.auto=1;f.msg='Signed in. No backup yet, saving now.';save();await fbPush(1)}}}
+  else if(a=='forgot'){if(!em){toast('Type your email first');return}await fbAuth('sendOobCode',{requestType:'PASSWORD_RESET',email:em});f.msg='A link to choose a new password was sent to '+em+'. Open it, set the new password, then sign in here.'}
+  else if(a=='resend'){await fbAuth('sendOobCode',{requestType:'VERIFY_EMAIL',idToken:await fbTok()});f.msg='Verification email sent again to '+esc(f.email)+'.'}
+  else if(a=='check'){await fbCheck();f.msg=f.ver?'Email verified.':'Not verified yet. Open the link in the email first.'}
+  else if(a=='out'){f.rt='';f.uid='';f.auto=0;fbI='';f.msg='Signed out.'}
+  else if(a=='save'){f.auto=1;save();await fbPush();return}
+  else if(a=='pull'){await fbPull();return}
+ }catch(err){f.msg=err.message}
+ try{localStorage.setItem(K,JSON.stringify(S))}catch(x){}if(tab=='set')render()});
 /* ===== v9: swipe a region to swap, car Bluetooth tracking, oil change tracker ===== */
 const CTR=()=>NP('CarTracker');
 const CAR=()=>{const c=S.car=S.car||{};c.map=c.map||{};c.days=c.days||{};c.log=c.log||[];c.used=c.used||{};c.done=c.done||{};c.home=c.home||'Constantine';return c};
