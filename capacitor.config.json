@@ -1,9 +1,6 @@
 {
-  "appId": "com.worktracker.app",
-  "appName": "Work Tracker",
+  "appId": "com.chourouk.orthoassistant",
+  "appName": "Ortho Assistant",
   "webDir": "www",
-  "server": { "androidScheme": "https" },
-  "plugins": {
-    "LocalNotifications": { "smallIcon": "ic_stat_icon" }
-  }
+  "android": { "allowMixedContent": false }
 }
